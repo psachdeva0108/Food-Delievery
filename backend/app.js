@@ -1,49 +1,47 @@
 import fs from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-import bodyParser from 'body-parser';
 import express from 'express';
+import cors from 'cors';
 
 const app = express();
 
-app.use(bodyParser.json());
-app.use(express.static('public'));
+// Set up absolute directory paths
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const dataDirPath = path.join(__dirname, 'data');
 
-app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  next();
-});
+app.use(cors());
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/meals', async (req, res) => {
-  const meals = await fs.readFile('./data/available-meals.json', 'utf8');
-  res.json(JSON.parse(meals));
+  try {
+    const mealsPath = path.join(dataDirPath, 'available-meals.json');
+    const meals = await fs.readFile(mealsPath, 'utf8');
+    res.json(JSON.parse(meals));
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to load meals data.' });
+  }
 });
 
 app.post('/orders', async (req, res) => {
-  const orderData = req.body.order;
-  await new Promise((resolve) => setTimeout(resolve, 1000))
-  if (orderData === null || orderData.items === null || orderData.items.length === 0) {
-    return res
-      .status(400)
-      .json({ message: 'Missing data.' });
+  const orderData = req.body?.order;
+  
+  if (!orderData || !orderData.items || orderData.items.length === 0) {
+    return res.status(400).json({ message: 'Missing order data.' });
   }
 
   if (
-    orderData.customer.email === null ||
-    !orderData.customer.email.includes('@') ||
-    orderData.customer.name === null ||
-    orderData.customer.name.trim() === '' ||
-    orderData.customer.street === null ||
-    orderData.customer.street.trim() === '' ||
-    orderData.customer['postal-code'] === null ||
-    orderData.customer['postal-code'].trim() === '' ||
-    orderData.customer.city === null ||
-    orderData.customer.city.trim() === ''
+    !orderData.customer?.email?.includes('@') ||
+    !orderData.customer?.name?.trim() ||
+    !orderData.customer?.street?.trim() ||
+    !orderData.customer?.['postal-code']?.trim() ||
+    !orderData.customer?.city?.trim()
   ) {
     return res.status(400).json({
-      message:
-        'Missing data: Email, name, street, postal code or city is missing.',
+      message: 'Missing customer details (email, name, street, postal code, or city).',
     });
   }
 
@@ -51,19 +49,25 @@ app.post('/orders', async (req, res) => {
     ...orderData,
     id: (Math.random() * 1000).toString(),
   };
-  const orders = await fs.readFile('./data/orders.json', 'utf8');
-  const allOrders = JSON.parse(orders);
-  allOrders.push(newOrder);
-  await fs.writeFile('./data/orders.json', JSON.stringify(allOrders));
-  res.status(201).json({ message: 'Order created!' });
+
+  try {
+    const ordersPath = path.join(dataDirPath, 'orders.json');
+    const orders = await fs.readFile(ordersPath, 'utf8');
+    const allOrders = JSON.parse(orders);
+    allOrders.push(newOrder);
+    await fs.writeFile(ordersPath, JSON.stringify(allOrders));
+    res.status(201).json({ message: 'Order created!' });
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to save order.' });
+  }
 });
 
 app.use((req, res) => {
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
-  }
-
   res.status(404).json({ message: 'Not found' });
 });
 
-app.listen(3000);
+// Bind to process.env.PORT for Render hosting
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server listening on port ${PORT}`);
+});
